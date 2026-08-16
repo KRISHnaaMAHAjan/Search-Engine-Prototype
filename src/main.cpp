@@ -5,10 +5,44 @@
 #include <mutex>
 #include <fstream>
 #include <chrono>
+#include <unordered_map>
+#include <cctype>
 #include "ags/common.hpp"
 #include "ags/rabin_karp.hpp"
+#include "ags/bloom_filter.hpp"
 
 using namespace std;
+
+std::vector<std::string> tokenize(const std::string& text, bool case_insensitive) {
+    std::vector<std::string> tokens;
+    std::string current_token;
+    for (char c : text) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            current_token += case_insensitive ? std::tolower(static_cast<unsigned char>(c)) : c;
+        } else if (!current_token.empty()) {
+            tokens.push_back(current_token);
+            current_token.clear();
+        }
+    }
+    if (!current_token.empty()) {
+        tokens.push_back(current_token);
+    }
+    return tokens;
+}
+
+ags::BloomFilter buildBloomFilterForFile(const std::string& filepath, bool case_insensitive) {
+    ags::BloomFilter bf(10000, 0.01); 
+    std::ifstream file(filepath);
+    if (!file.is_open()) return bf;
+    std::string word;
+    while (file >> word) {
+        auto tokens = tokenize(word, case_insensitive);
+        for (const auto& token : tokens) {
+            bf.add(token);
+        }
+    }
+    return bf;
+}
 
 // Mutex for protecting shared results
 mutex resultMutex;
@@ -91,14 +125,53 @@ int main(int argc, char* argv[]) {
 
     auto start = chrono::high_resolution_clock::now();
 
-    if (fs::is_directory(path)) {
-        for (const auto& entry : fs::directory_iterator(path)) {
-            if (entry.is_regular_file()) {
-                processFile(entry.path().string(), pattern, caseInsensitive);
+    vector<string> targetFiles;
+    if (fs::exists(path)) {
+        if (fs::is_directory(path)) {
+            for (const auto& entry : fs::directory_iterator(path)) {
+                if (entry.is_regular_file()) {
+                    targetFiles.push_back(entry.path().string());
+                }
             }
+        } else {
+            targetFiles.push_back(path);
         }
     } else {
-        processFile(path, pattern, caseInsensitive);
+        cout << "Path does not exist: " << path << endl;
+        return 1;
+    }
+
+    unordered_map<string, ags::BloomFilter> bloomFilters;
+    for (const auto& filepath : targetFiles) {
+        bloomFilters.emplace(filepath, buildBloomFilterForFile(filepath, caseInsensitive));
+    }
+
+    vector<string> queryTokens = tokenize(pattern, caseInsensitive);
+
+    int filesProcessed = 0;
+    int filesSkipped = 0;
+    int candidateFilesSearched = 0;
+
+    for (const auto& filepath : targetFiles) {
+        filesProcessed++;
+        bool shouldSearch = true;
+        
+        if (!queryTokens.empty()) {
+            const auto& bf = bloomFilters.at(filepath);
+            for (const auto& token : queryTokens) {
+                if (!bf.possiblyContains(token)) {
+                    shouldSearch = false;
+                    break;
+                }
+            }
+        }
+
+        if (shouldSearch) {
+            candidateFilesSearched++;
+            processFile(filepath, pattern, caseInsensitive);
+        } else {
+            filesSkipped++;
+        }
     }
 
     auto end = chrono::high_resolution_clock::now();
@@ -106,7 +179,10 @@ int main(int argc, char* argv[]) {
 
     cout << "------------------------------------------" << endl;
     cout << "Search Results for: " << pattern << (caseInsensitive ? " (Case-Insensitive)" : "") << endl;
-    cout << "Total Matches: " << allMatches.size() << endl;
+    cout << "Files processed: " << filesProcessed << endl;
+    cout << "Files skipped by Bloom Filter: " << filesSkipped << endl;
+    cout << "Candidate files searched: " << candidateFilesSearched << endl;
+    cout << "Total exact matches: " << allMatches.size() << endl;
     cout << "Time Elapsed: " << elapsed.count() << " seconds" << endl;
     cout << "------------------------------------------" << endl;
 

@@ -4,9 +4,13 @@ This is a search engine I built for my systems programming class. It can search 
 
 ## How it works
 
-1. **Rabin-Karp Algorithm**: I used the Rabin-Karp rolling hash algorithm. It's cool because it doesn't have to check every single character unless the hashes match. This makes it way faster than a normal nested loop search.
-2. **Multi-threading**: I used `std::thread` to split the file into chunks. Each thread searches its own chunk, and then we combine the results. I added some overlap between chunks so we don't miss words that are split in half.
-3. **C++**: I used C++17 features like `std::filesystem` to list files in a directory.
+The search tool uses a multi-stage pipeline to perform highly efficient searches across files:
+
+1. **Tokenization**: Words in target files are tokenized by extracting alphanumeric sequences, optionally converting them to lowercase for case-insensitive searches.
+2. **Per-file Bloom Filter Indexing**: During initialization, a Bloom Filter is built for each target file. All tokenized words from the file are added to its respective Bloom Filter.
+3. **Query-time Check**: The search query is also tokenized. Before running the search on any file, the tool checks if all query tokens are possibly present in the file's Bloom Filter. If any token is definitely absent (meaning the Bloom Filter returns `false`), the file is skipped entirely, avoiding expensive disk I/O and Rabin-Karp searches.
+4. **Candidate Dispatch**: Files that pass the Bloom Filter check are dispatched to the search engine.
+5. **Rabin-Karp Search with Multi-threading**: The dispatched files are searched using the Rabin-Karp rolling hash algorithm. The file is split into chunks, and each chunk is searched in parallel using a thread pool with overlapping boundaries to ensure no matches are missed.
 
 ## How to build it (PowerShell)
 

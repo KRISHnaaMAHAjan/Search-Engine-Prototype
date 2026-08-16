@@ -11,20 +11,15 @@ else()
     add_compile_options(-Wall -Wextra -O3 -march=native -pthread)
 endif()
 
-# Include directories
-include_directories(include)
-
 # Source files
 set(SOURCES
     src/main.cpp
 )
 
-add_executable(ags ${SOURCES})
+add_executable(searchtool ${SOURCES})
 
-# Target-specific properties
-set_target_properties(ags PROPERTIES
-    OUTPUT_NAME "searchtool"
-)
+# Target-specific properties and include directories
+target_include_directories(searchtool PRIVATE include)
 
 # Installation (optional, but good practice)
-install(TARGETS ags DESTINATION bin)
+install(TARGETS searchtool DESTINATION bin)
